@@ -1,5 +1,6 @@
 import litellm
 import logging
+import os
 import time
 import json
 import copy
@@ -8,6 +9,15 @@ import asyncio
 import PyPDF2
 
 logger = logging.getLogger(__name__)
+
+
+def _litellm_api_base_kwargs():
+    api_base = (
+        os.getenv("OPENAI_BASE_URL")
+        or os.getenv("OPENAI_API_BASE")
+        or os.getenv("CHATGPT_API_BASE")
+    )
+    return {"api_base": api_base} if api_base else {}
 
 
 def count_tokens(text, model=None):
@@ -28,6 +38,7 @@ def llm_completion(model, prompt, chat_history=None, return_finish_reason=False)
                 model=model,
                 messages=messages,
                 temperature=0,
+                **_litellm_api_base_kwargs(),
             )
             content = response.choices[0].message.content
             if return_finish_reason:
@@ -57,6 +68,7 @@ async def llm_acompletion(model, prompt):
                 model=model,
                 messages=messages,
                 temperature=0,
+                **_litellm_api_base_kwargs(),
             )
             return response.choices[0].message.content
         except Exception as e:

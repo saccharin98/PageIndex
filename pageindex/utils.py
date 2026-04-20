@@ -23,6 +23,16 @@ if not os.getenv("OPENAI_API_KEY") and os.getenv("CHATGPT_API_KEY"):
 
 litellm.drop_params = True
 
+
+def _litellm_api_base_kwargs():
+    api_base = (
+        os.getenv("OPENAI_BASE_URL")
+        or os.getenv("OPENAI_API_BASE")
+        or os.getenv("CHATGPT_API_BASE")
+    )
+    return {"api_base": api_base} if api_base else {}
+
+
 def count_tokens(text, model=None):
     if not text:
         return 0
@@ -40,6 +50,7 @@ def llm_completion(model, prompt, chat_history=None, return_finish_reason=False)
                 model=model,
                 messages=messages,
                 temperature=0,
+                **_litellm_api_base_kwargs(),
             )
             content = response.choices[0].message.content
             if return_finish_reason:
@@ -70,6 +81,7 @@ async def llm_acompletion(model, prompt):
                 model=model,
                 messages=messages,
                 temperature=0,
+                **_litellm_api_base_kwargs(),
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -707,4 +719,3 @@ def print_tree(tree, indent=0):
 def print_wrapped(text, width=100):
     for line in text.splitlines():
         print(textwrap.fill(line, width=width))
-
