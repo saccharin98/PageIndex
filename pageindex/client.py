@@ -1,5 +1,7 @@
 # pageindex/client.py
 from __future__ import annotations
+
+import os
 from pathlib import Path
 from .collection import Collection
 from .config import IndexConfig
@@ -16,6 +18,14 @@ def _normalize_retrieve_model(model: str) -> str:
     return f"litellm/{model}"
 
 
+def _configured_openai_base_url() -> str | None:
+    return (
+        os.getenv("OPENAI_BASE_URL")
+        or os.getenv("OPENAI_API_BASE")
+        or os.getenv("CHATGPT_API_BASE")
+    )
+
+
 class PageIndexClient:
     """PageIndex client — supports both local and cloud modes.
 
@@ -24,6 +34,7 @@ class PageIndexClient:
             and local-only params (model, storage_path, index_config, …) are ignored.
         model: LLM model for indexing (local mode only, default: gpt-4o-2024-11-20).
         retrieve_model: LLM model for agent QA (local mode only, default: same as model).
+        base_url: Base URL for OpenAI-compatible LLM endpoints (local mode only).
         storage_path: Directory for SQLite DB and files (local mode only, default: ./.pageindex).
         storage: Custom StorageEngine instance (local mode only).
         index_config: Advanced indexing parameters (local mode only, optional).
@@ -41,11 +52,12 @@ class PageIndexClient:
 
     def __init__(self, api_key: str = None, model: str = None,
                  retrieve_model: str = None, storage_path: str = None,
-                 storage=None, index_config: IndexConfig | dict = None):
+                 storage=None, index_config: IndexConfig | dict = None,
+                 base_url: str = None):
         if api_key:
             self._init_cloud(api_key)
         else:
-            self._init_local(model, retrieve_model, storage_path, storage, index_config)
+            self._init_local(model, retrieve_model, storage_path, storage, index_config, base_url)
 
     def _init_cloud(self, api_key: str):
         from .backend.cloud import CloudBackend
@@ -53,7 +65,11 @@ class PageIndexClient:
 
     def _init_local(self, model: str = None, retrieve_model: str = None,
                     storage_path: str = None, storage=None,
-                    index_config: IndexConfig | dict = None):
+                    index_config: IndexConfig | dict = None,
+                    base_url: str = None):
+        if base_url:
+            os.environ["OPENAI_BASE_URL"] = base_url
+
         # Build IndexConfig: merge model/retrieve_model with index_config
         overrides = {}
         if model:
@@ -89,14 +105,17 @@ class PageIndexClient:
         """Validate model and check API key via litellm. Warns if key seems missing."""
         try:
             import litellm
+            from .index.utils import _model_uses_openai_base_url
             litellm.model_cost_map_url = ""
             _, provider, _, _ = litellm.get_llm_provider(model=model)
         except Exception:
             return
 
+        if _configured_openai_base_url() and _model_uses_openai_base_url(model):
+            return
+
         key = litellm.get_api_key(llm_provider=provider, dynamic_api_key=None)
         if not key:
-            import os
             common_var = f"{provider.upper()}_API_KEY"
             if not os.getenv(common_var):
                 from .errors import PageIndexError
@@ -130,6 +149,7 @@ class LocalClient(PageIndexClient):
     Args:
         model: LLM model for indexing (default: gpt-4o-2024-11-20)
         retrieve_model: LLM model for agent QA (default: same as model)
+        base_url: Base URL for OpenAI-compatible LLM endpoints.
         storage_path: Directory for SQLite DB and files (default: ./.pageindex)
         storage: Custom StorageEngine instance (default: SQLiteStorage)
         index_config: Advanced indexing parameters. Pass an IndexConfig instance
@@ -150,8 +170,9 @@ class LocalClient(PageIndexClient):
 
     def __init__(self, model: str = None, retrieve_model: str = None,
                  storage_path: str = None, storage=None,
-                 index_config: IndexConfig | dict = None):
-        self._init_local(model, retrieve_model, storage_path, storage, index_config)
+                 index_config: IndexConfig | dict = None,
+                 base_url: str = None):
+        self._init_local(model, retrieve_model, storage_path, storage, index_config, base_url)
 
 
 class CloudClient(PageIndexClient):

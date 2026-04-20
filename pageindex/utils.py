@@ -23,6 +23,50 @@ if not os.getenv("OPENAI_API_KEY") and os.getenv("CHATGPT_API_KEY"):
 
 litellm.drop_params = True
 
+_OPENAI_BASE_URL_PROVIDERS = {
+    "openai",
+    "openai_like",
+    "custom_openai",
+    "text-completion-openai",
+    "aiohttp_openai",
+    "ollama",
+    "ollama_chat",
+    "lm_studio",
+    "hosted_vllm",
+    "vllm",
+    "llamafile",
+    "xinference",
+    "oobabooga",
+}
+
+
+def _normalize_litellm_model(model):
+    return model.removeprefix("litellm/") if model else model
+
+
+def _model_uses_openai_base_url(model):
+    model = _normalize_litellm_model(model)
+    if not model:
+        return False
+    if "/" in model:
+        provider = model.split("/", 1)[0]
+        return provider in _OPENAI_BASE_URL_PROVIDERS
+    try:
+        _, provider, _, _ = litellm.get_llm_provider(model=model)
+        return provider in _OPENAI_BASE_URL_PROVIDERS
+    except Exception:
+        return True
+
+
+def _litellm_api_base_kwargs(model):
+    api_base = (
+        os.getenv("OPENAI_BASE_URL")
+        or os.getenv("OPENAI_API_BASE")
+        or os.getenv("CHATGPT_API_BASE")
+    )
+    return {"api_base": api_base} if api_base and _model_uses_openai_base_url(model) else {}
+
+
 def count_tokens(text, model=None):
     if not text:
         return 0
@@ -40,6 +84,7 @@ def llm_completion(model, prompt, chat_history=None, return_finish_reason=False)
                 model=model,
                 messages=messages,
                 temperature=0,
+                **_litellm_api_base_kwargs(model),
             )
             content = response.choices[0].message.content
             if return_finish_reason:
@@ -70,6 +115,7 @@ async def llm_acompletion(model, prompt):
                 model=model,
                 messages=messages,
                 temperature=0,
+                **_litellm_api_base_kwargs(model),
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -707,4 +753,3 @@ def print_tree(tree, indent=0):
 def print_wrapped(text, width=100):
     for line in text.splitlines():
         print(textwrap.fill(line, width=width))
-

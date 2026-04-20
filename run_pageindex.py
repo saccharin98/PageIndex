@@ -12,6 +12,8 @@ if __name__ == "__main__":
     parser.add_argument('--md_path', type=str, help='Path to the Markdown file')
 
     parser.add_argument('--model', type=str, default=None, help='Model to use')
+    parser.add_argument('--base-url', '--api-base', dest='base_url', type=str, default=None,
+                      help='Base URL for OpenAI-compatible API providers')
 
     parser.add_argument('--toc-check-pages', type=int, default=None,
                       help='Number of pages to check for table of contents (PDF only)')
@@ -43,6 +45,9 @@ if __name__ == "__main__":
         raise ValueError("Either --pdf_path or --md_path must be specified")
     if args.pdf_path and args.md_path:
         raise ValueError("Only one of --pdf_path or --md_path can be specified")
+
+    if args.base_url:
+        os.environ["OPENAI_BASE_URL"] = args.base_url
 
     # Build IndexConfig from CLI args (None values use defaults)
     config_overrides = {
