@@ -170,12 +170,32 @@ You can customize the processing with additional optional arguments:
 
 ```
 --model                 LLM model to use (default: gpt-4o-2024-11-20)
+--base-url              Base URL for OpenAI-compatible API providers
 --toc-check-pages       Pages to check for table of contents (default: 20)
 --max-pages-per-node    Max pages per node (default: 10)
 --max-tokens-per-node   Max tokens per node (default: 20000)
 --if-add-node-id        Add node ID (yes/no, default: yes)
 --if-add-node-summary   Add node summary (yes/no, default: yes)
 --if-add-doc-description Add doc description (yes/no, default: yes)
+```
+</details>
+
+<details>
+<summary>OpenAI-compatible API base URL</summary>
+<br>
+PageIndex uses LiteLLM for local LLM calls. To point requests at an OpenAI-compatible endpoint, set `OPENAI_BASE_URL` or pass `--base-url`:
+
+```bash
+OPENAI_BASE_URL=http://localhost:11434/v1
+python3 run_pageindex.py --pdf_path /path/to/your/document.pdf --model openai/llama3.1
+```
+
+You can also pass the endpoint directly:
+
+```bash
+python3 run_pageindex.py --pdf_path /path/to/your/document.pdf \
+  --model openai/llama3.1 \
+  --base-url http://localhost:11434/v1
 ```
 </details>
 
