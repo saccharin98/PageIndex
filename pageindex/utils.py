@@ -15,6 +15,7 @@ load_dotenv()
 import logging
 import yaml
 from pathlib import Path
+from pprint import pprint
 from types import SimpleNamespace as config
 
 # Backward compatibility: support CHATGPT_API_KEY as alias for OPENAI_API_KEY
@@ -23,9 +24,7 @@ if not os.getenv("OPENAI_API_KEY") and os.getenv("CHATGPT_API_KEY"):
 
 litellm.drop_params = True
 
-
 _OPENAI_BASE_URL_PROVIDERS = {"openai"}
-
 
 def _normalize_litellm_model(model):
     return model.removeprefix("litellm/") if model else model
@@ -43,6 +42,21 @@ def _model_uses_openai_base_url(model):
         return provider in _OPENAI_BASE_URL_PROVIDERS
     except Exception:
         return True
+
+async def call_llm(prompt, api_key, model="gpt-4.1", temperature=0):
+    """Call an LLM to generate a response to a prompt.
+
+    Kept for compatibility with the pageindex 0.2.x SDK utility API.
+    """
+    import openai
+
+    client = openai.AsyncOpenAI(api_key=api_key)
+    response = await client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=temperature,
+    )
+    return response.choices[0].message.content.strip()
 
 
 def _litellm_api_base_kwargs(model):
@@ -496,12 +510,14 @@ def clean_structure_post(data):
             clean_structure_post(section)
     return data
 
-def remove_fields(data, fields=['text']):
+def remove_fields(data, fields=['text'], max_len=None):
     if isinstance(data, dict):
-        return {k: remove_fields(v, fields)
+        return {k: remove_fields(v, fields, max_len)
             for k, v in data.items() if k not in fields}
     elif isinstance(data, list):
-        return [remove_fields(item, fields) for item in data]
+        return [remove_fields(item, fields, max_len) for item in data]
+    elif isinstance(data, str):
+        return data[:max_len] + '...' if max_len is not None and len(data) > max_len else data
     return data
 
 def print_toc(tree, indent=0):
@@ -717,19 +733,65 @@ class ConfigLoader:
         merged = {**self._default_dict, **user_dict}
         return config(**merged)
 
-def create_node_mapping(tree):
-    """Create a flat dict mapping node_id to node for quick lookup."""
+def create_node_mapping(tree, include_page_ranges=False, max_page=None):
+    """Create a mapping of node_id to node for quick lookup.
+
+    The optional page-range arguments are kept for compatibility with the
+    pageindex 0.2.x SDK utility API.
+    """
+    def get_all_nodes(nodes):
+        if isinstance(nodes, dict):
+            return [nodes] + [
+                child_node
+                for child in nodes.get('nodes', [])
+                for child_node in get_all_nodes(child)
+            ]
+        elif isinstance(nodes, list):
+            return [
+                child_node
+                for item in nodes
+                for child_node in get_all_nodes(item)
+            ]
+        return []
+
+    all_nodes = get_all_nodes(tree)
+
+    if not include_page_ranges:
+        return {node["node_id"]: node for node in all_nodes if node.get("node_id")}
+
     mapping = {}
-    def _traverse(nodes):
-        for node in nodes:
-            if node.get('node_id'):
-                mapping[node['node_id']] = node
-            if node.get('nodes'):
-                _traverse(node['nodes'])
-    _traverse(tree)
+    for i, node in enumerate(all_nodes):
+        if not node.get("node_id"):
+            continue
+        start_page = node.get("page_index", node.get("start_index"))
+        if node.get("end_index") is not None:
+            end_page = node.get("end_index")
+        elif i + 1 < len(all_nodes):
+            next_node = all_nodes[i + 1]
+            end_page = next_node.get("page_index", next_node.get("start_index"))
+        else:
+            end_page = max_page
+
+        mapping[node["node_id"]] = {
+            "node": node,
+            "start_index": start_page,
+            "end_index": end_page,
+        }
+
     return mapping
 
-def print_tree(tree, indent=0):
+def print_tree(tree, exclude_fields=None, indent=None):
+    if exclude_fields is None:
+        exclude_fields = ['text', 'page_index']
+    if isinstance(exclude_fields, int):
+        indent = exclude_fields
+        exclude_fields = None
+    if indent is None and exclude_fields is not None:
+        cleaned_tree = remove_fields(copy.deepcopy(tree), exclude_fields, max_len=40)
+        pprint(cleaned_tree, sort_dicts=False, width=100)
+        return
+
+    indent = indent or 0
     for node in tree:
         summary = node.get('summary') or node.get('prefix_summary', '')
         summary_str = f"  —  {summary[:60]}..." if summary else ""
