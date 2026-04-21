@@ -44,7 +44,6 @@ class LegacyCloudAPI:
         beta_headers: list[str] | None = None,
         folder_id: str | None = None,
     ) -> dict[str, Any]:
-        files = {"file": open(file_path, "rb")}
         data: dict[str, Any] = {"if_retrieval": True}
         if mode is not None:
             data["mode"] = mode
@@ -53,16 +52,14 @@ class LegacyCloudAPI:
         if folder_id is not None:
             data["folder_id"] = folder_id
 
-        try:
+        with open(file_path, "rb") as f:
             response = self._request(
                 "POST",
                 "/doc/",
                 "Failed to submit document",
-                files=files,
+                files={"file": f},
                 data=data,
             )
-        finally:
-            files["file"].close()
 
         return response.json()
 
@@ -166,7 +163,10 @@ class LegacyCloudAPI:
                     chunk = json.loads(data)
                 except json.JSONDecodeError:
                     continue
-                content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                choices = chunk.get("choices") or []
+                if not choices:
+                    continue
+                content = choices[0].get("delta", {}).get("content", "")
                 if content:
                     yield content
         except requests.RequestException as e:

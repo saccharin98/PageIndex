@@ -767,7 +767,7 @@ def print_tree(tree, exclude_fields=None, indent=None):
         summary_str = f"  —  {summary[:60]}..." if summary else ""
         print('  ' * indent + f"[{node.get('node_id', '?')}] {node.get('title', '')}{summary_str}")
         if node.get('nodes'):
-            print_tree(node['nodes'], indent + 1)
+            print_tree(node['nodes'], exclude_fields=exclude_fields, indent=indent + 1)
 
 def print_wrapped(text, width=100):
     for line in text.splitlines():
