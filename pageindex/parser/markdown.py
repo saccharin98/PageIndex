@@ -1,5 +1,7 @@
 import re
 from pathlib import Path
+import yaml
+
 from .protocol import ContentNode, ParsedDocument
 from ..index.utils import count_tokens
 
@@ -9,6 +11,9 @@ _SETEXT_H1 = re.compile(r"^={3,}\s*$")
 _SETEXT_H2 = re.compile(r"^-{3,}\s*$")
 _FENCE_OPEN = re.compile(r"^(`{3,}|~{3,})")
 _FRONTMATTER_FENCE = re.compile(r"^---\s*$")
+_BLOCKQUOTE = re.compile(r"^>")
+_LIST_ITEM = re.compile(r"^(?:[-+*]|\d{1,9}[.)])(?:\s+|$)")
+_TABLE_ROW = re.compile(r"^\|.*\|$|^[^|]+\|[^|]+$")
 
 
 class MarkdownParser:
@@ -23,9 +28,9 @@ class MarkdownParser:
             content = f.read()
 
         lines = content.split("\n")
-        lines, metadata = self._strip_frontmatter(lines)
+        lines, metadata, line_offset = self._strip_frontmatter(lines)
         headers = self._extract_headers(lines)
-        nodes = self._build_nodes(headers, lines, model)
+        nodes = self._build_nodes(headers, lines, model, line_offset)
 
         return ParsedDocument(
             doc_name=path.stem,
@@ -34,22 +39,29 @@ class MarkdownParser:
         )
 
     @staticmethod
-    def _strip_frontmatter(lines: list[str]) -> tuple[list[str], dict | None]:
+    def _strip_frontmatter(lines: list[str]) -> tuple[list[str], dict | None, int]:
         """Strip YAML frontmatter (--- delimited) from the beginning of the file.
 
-        Returns the remaining lines and raw frontmatter as metadata.
+        Returns the remaining lines, raw frontmatter metadata, and removed line count.
         """
         if not lines or not _FRONTMATTER_FENCE.match(lines[0]):
-            return lines, None
+            return lines, None, 0
 
         for i in range(1, len(lines)):
             if _FRONTMATTER_FENCE.match(lines[i]):
                 raw = "\n".join(lines[1:i])
+                try:
+                    parsed = yaml.safe_load(raw)
+                except yaml.YAMLError:
+                    return lines, None, 0
+                if not isinstance(parsed, dict):
+                    return lines, None, 0
+
                 remaining = lines[i + 1:]
-                return remaining, {"frontmatter": raw}
+                return remaining, {"frontmatter": raw}, i + 1
 
         # No closing fence found — not valid frontmatter, return as-is
-        return lines, None
+        return lines, None, 0
 
     def _extract_headers(self, lines: list[str]) -> list[dict]:
         """Extract all ATX and setext headers, respecting fenced code blocks."""
@@ -92,7 +104,7 @@ class MarkdownParser:
             # We check if *this* line is an underline and the previous line is text
             if line_num >= 2:
                 prev = lines[line_num - 2].strip()  # previous line (0-indexed)
-                if prev and not _FENCE_OPEN.match(prev) and not _ATX_HEADER.match(prev):
+                if self._is_setext_paragraph_candidate(prev):
                     if _SETEXT_H1.match(stripped):
                         headers.append({
                             "title": prev,
@@ -110,8 +122,21 @@ class MarkdownParser:
 
         return headers
 
+    @staticmethod
+    def _is_setext_paragraph_candidate(line: str) -> bool:
+        return bool(line
+                    and not _FENCE_OPEN.match(line)
+                    and not _ATX_HEADER.match(line)
+                    and not _BLOCKQUOTE.match(line)
+                    and not _LIST_ITEM.match(line)
+                    and not _TABLE_ROW.match(line))
+
     def _build_nodes(
-        self, headers: list[dict], lines: list[str], model: str | None
+        self,
+        headers: list[dict],
+        lines: list[str],
+        model: str | None,
+        line_offset: int = 0,
     ) -> list[ContentNode]:
         if not headers:
             # No headers — entire content becomes a single node
@@ -119,7 +144,8 @@ class MarkdownParser:
             if not text:
                 return []
             tokens = count_tokens(text, model=model)
-            return [ContentNode(content=text, tokens=tokens, index=1)]
+            index = self._first_content_line(lines, line_offset)
+            return [ContentNode(content=text, tokens=tokens, index=index)]
 
         nodes = []
 
@@ -129,7 +155,11 @@ class MarkdownParser:
             preamble = "\n".join(lines[: first_header_line - 1]).strip()
             if preamble:
                 tokens = count_tokens(preamble, model=model)
-                nodes.append(ContentNode(content=preamble, tokens=tokens, index=1))
+                index = self._first_content_line(
+                    lines[: first_header_line - 1],
+                    line_offset,
+                )
+                nodes.append(ContentNode(content=preamble, tokens=tokens, index=index))
 
         # One node per header section
         for i, header in enumerate(headers):
@@ -142,9 +172,16 @@ class MarkdownParser:
                     content=text,
                     tokens=tokens,
                     title=header["title"],
-                    index=header["line_num"],
+                    index=header["line_num"] + line_offset,
                     level=header["level"],
                 )
             )
 
         return nodes
+
+    @staticmethod
+    def _first_content_line(lines: list[str], line_offset: int) -> int:
+        for i, line in enumerate(lines, 1):
+            if line.strip():
+                return i + line_offset
+        return line_offset + 1

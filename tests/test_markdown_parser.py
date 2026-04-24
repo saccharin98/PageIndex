@@ -117,6 +117,45 @@ Hello world.
         assert "title: My Doc" not in node.content
 
 
+def test_yaml_frontmatter_preserves_original_line_numbers(tmp_path):
+    """Node indexes should use original file line numbers after frontmatter."""
+    md = tmp_path / "front_lines.md"
+    md.write_text("""---
+title: My Doc
+---
+
+# Introduction
+Hello world.
+""")
+    parser = MarkdownParser()
+    result = parser.parse(str(md))
+    assert result.nodes[0].title == "Introduction"
+    assert result.nodes[0].index == 5
+
+
+def test_thematic_break_at_start_not_stripped_as_frontmatter(tmp_path):
+    """Markdown that starts with thematic breaks should not be stripped."""
+    md = tmp_path / "thematic.md"
+    md.write_text("""---
+
+# Introduction
+Hello world.
+
+---
+
+# Second
+More text.
+""")
+    parser = MarkdownParser()
+    result = parser.parse(str(md))
+    assert result.metadata is None
+    assert result.nodes[0].level is None
+    assert result.nodes[0].content == "---"
+    assert result.nodes[1].title == "Introduction"
+    assert result.nodes[1].index == 3
+    assert result.nodes[2].title == "Second"
+
+
 def test_setext_h1(tmp_path):
     """Setext-style H1 (=== underline) should be recognized."""
     md = tmp_path / "setext.md"
@@ -137,6 +176,25 @@ More content.
     assert result.nodes[0].level == 1
     assert result.nodes[1].title == "Sub Title"
     assert result.nodes[1].level == 2
+
+
+@pytest.mark.parametrize("prefix", ["- item", "1. item", "> quote", "| A | B |"])
+def test_setext_requires_paragraph_previous_line(tmp_path, prefix):
+    """Setext underline should not turn list/quote/table lines into headers."""
+    md = tmp_path / "not_setext.md"
+    md.write_text(f"""{prefix}
+---
+
+# Real Header
+Content.
+""")
+    parser = MarkdownParser()
+    result = parser.parse(str(md))
+    titles = [n.title for n in result.nodes if n.title]
+    assert prefix not in titles
+    assert "Real Header" in titles
+    assert result.nodes[0].level is None
+    assert prefix in result.nodes[0].content
 
 
 def test_headers_inside_code_blocks_ignored(tmp_path):
