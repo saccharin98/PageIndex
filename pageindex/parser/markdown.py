@@ -71,10 +71,12 @@ class MarkdownParser:
         fence_pattern = None  # tracks the char and min length to close
 
         for line_num, line in enumerate(lines, 1):
-            stripped = line.strip()
+            indent = self._indent_width(line)
+            content = line.lstrip(" \t")
+            stripped = content.strip()
 
             # Track fenced code blocks
-            fence_match = _FENCE_OPEN.match(stripped)
+            fence_match = _FENCE_OPEN.match(content) if indent <= 3 else None
             if fence_match:
                 marker = fence_match.group(1)
                 if not in_fence:
@@ -91,6 +93,10 @@ class MarkdownParser:
             if in_fence:
                 continue
 
+            # Four-space/tab indented lines are code blocks, not headers.
+            if indent >= 4:
+                continue
+
             # ATX headers: # Title
             atx = _ATX_HEADER.match(stripped)
             if atx:
@@ -104,8 +110,9 @@ class MarkdownParser:
             # Setext headers: underline on next line detected by looking back
             # We check if *this* line is an underline and the previous line is text
             if line_num >= 2:
-                prev = lines[line_num - 2].strip()  # previous line (0-indexed)
-                if self._is_setext_paragraph_candidate(prev):
+                prev_line = lines[line_num - 2]
+                prev = prev_line.strip()  # previous line (0-indexed)
+                if self._indent_width(prev_line) < 4 and self._is_setext_paragraph_candidate(prev):
                     if _SETEXT_H1.match(stripped):
                         headers.append({
                             "title": prev,
@@ -122,6 +129,18 @@ class MarkdownParser:
                         continue
 
         return headers
+
+    @staticmethod
+    def _indent_width(line: str) -> int:
+        width = 0
+        for char in line:
+            if char == " ":
+                width += 1
+            elif char == "\t":
+                width += 4 - (width % 4)
+            else:
+                break
+        return width
 
     @staticmethod
     def _is_closing_fence(line: str, fence_pattern: tuple[str, int] | None) -> bool:

@@ -241,6 +241,43 @@ More text.
     assert "Also not a header" not in titles
 
 
+def test_indented_code_block_headers_ignored(tmp_path):
+    """Headers inside four-space indented code blocks should not be detected."""
+    md = tmp_path / "indented_code.md"
+    md.write_text("""# Before
+
+    # Not a header
+    text
+
+# After
+Done.
+""")
+    parser = MarkdownParser()
+    result = parser.parse(str(md))
+    titles = [n.title for n in result.nodes if n.title]
+    assert "Before" in titles
+    assert "After" in titles
+    assert "Not a header" not in titles
+
+
+def test_three_space_indented_headers_allowed(tmp_path):
+    """Headers indented up to three spaces should still be recognized."""
+    md = tmp_path / "indented_header.md"
+    md.write_text("""# Before
+
+   # Still a header
+
+# After
+Done.
+""")
+    parser = MarkdownParser()
+    result = parser.parse(str(md))
+    titles = [n.title for n in result.nodes if n.title]
+    assert "Before" in titles
+    assert "Still a header" in titles
+    assert "After" in titles
+
+
 def test_tilde_code_fences(tmp_path):
     """Tilde fences (~~~) should also be respected."""
     md = tmp_path / "tilde.md"
