@@ -178,6 +178,28 @@ More content.
     assert result.nodes[1].level == 2
 
 
+@pytest.mark.parametrize(
+    ("underline", "level"),
+    [
+        ("=", 1),
+        ("-", 2),
+    ],
+)
+def test_setext_single_character_underline(tmp_path, underline, level):
+    """Setext underlines may be a single marker character."""
+    md = tmp_path / "setext_single.md"
+    md.write_text(f"""Title
+{underline}
+
+Body text.
+""")
+    parser = MarkdownParser()
+    result = parser.parse(str(md))
+    assert len(result.nodes) == 1
+    assert result.nodes[0].title == "Title"
+    assert result.nodes[0].level == level
+
+
 @pytest.mark.parametrize("prefix", ["- item", "1. item", "> quote", "| A | B |"])
 def test_setext_requires_paragraph_previous_line(tmp_path, prefix):
     """Setext underline should not turn list/quote/table lines into headers."""
@@ -261,6 +283,27 @@ Done.
     assert "After" in titles
     assert "Inside fence" not in titles
     assert "Still inside" not in titles
+
+
+def test_fence_close_requires_only_marker_and_spaces(tmp_path):
+    """Fence-like content with trailing text should not close the code block."""
+    md = tmp_path / "fence_close.md"
+    md.write_text("""# Before
+
+```
+```not a closing fence
+# Still code
+```
+
+# After
+Done.
+""")
+    parser = MarkdownParser()
+    result = parser.parse(str(md))
+    titles = [n.title for n in result.nodes if n.title]
+    assert "Before" in titles
+    assert "After" in titles
+    assert "Still code" not in titles
 
 
 def test_atx_closing_hashes(tmp_path):

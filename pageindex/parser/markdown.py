@@ -7,9 +7,10 @@ from ..index.utils import count_tokens
 
 # Patterns
 _ATX_HEADER = re.compile(r"^(#{1,6})\s+(.+?)(?:\s+#+\s*)?$")
-_SETEXT_H1 = re.compile(r"^={3,}\s*$")
-_SETEXT_H2 = re.compile(r"^-{3,}\s*$")
+_SETEXT_H1 = re.compile(r"^=+\s*$")
+_SETEXT_H2 = re.compile(r"^-+\s*$")
 _FENCE_OPEN = re.compile(r"^(`{3,}|~{3,})")
+_FENCE_CLOSE = re.compile(r"^(`{3,}|~{3,})\s*$")
 _FRONTMATTER_FENCE = re.compile(r"^---\s*$")
 _BLOCKQUOTE = re.compile(r"^>")
 _LIST_ITEM = re.compile(r"^(?:[-+*]|\d{1,9}[.)])(?:\s+|$)")
@@ -81,7 +82,7 @@ class MarkdownParser:
                     fence_char = marker[0]
                     fence_len = len(marker)
                     fence_pattern = (fence_char, fence_len)
-                elif stripped[0] == fence_pattern[0] and len(marker) >= fence_pattern[1]:
+                elif self._is_closing_fence(stripped, fence_pattern):
                     # Only close if same char and at least as many
                     in_fence = False
                     fence_pattern = None
@@ -121,6 +122,19 @@ class MarkdownParser:
                         continue
 
         return headers
+
+    @staticmethod
+    def _is_closing_fence(line: str, fence_pattern: tuple[str, int] | None) -> bool:
+        if fence_pattern is None:
+            return False
+
+        close_match = _FENCE_CLOSE.match(line)
+        if not close_match:
+            return False
+
+        marker = close_match.group(1)
+        fence_char, fence_len = fence_pattern
+        return marker[0] == fence_char and len(marker) >= fence_len
 
     @staticmethod
     def _is_setext_paragraph_candidate(line: str) -> bool:
